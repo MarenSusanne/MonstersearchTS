@@ -4,50 +4,69 @@ const searchButton = document.getElementById("searchButton")!;
 const monsterResult = document.getElementById("monsterResult")!;
 const autocompleteList = document.getElementById("autocompleteList") as HTMLDivElement;
 
+interface Monster {
+  name: string;
+  url: string;
+}
+
+interface MonsterDetails {
+  name: string;
+  size: string;
+  type: string;
+  alignment: string;
+  armor_class: { value: number; type: string }[];
+  hit_points: number;
+  hit_points_roll: string;
+  speed: {
+    walk?: string;
+    swim?: string;
+    fly?: string;
+    burrow?: string;
+    climb?: string;
+  };
+  image?: string;
+}
+
 let allMonsters: Monster[] = [];
 
-type Monster = {
-  name: string;
-  
+window.onload = async function () {
+  try {
+    const response = await axios.get<{ results: Monster[] }>(
+      "https://www.dnd5eapi.co/api/monsters"
+    );
+    allMonsters = response.data.results;
+  } catch (error) {
+    console.error("Error fetching monsters", error);
+  }
 };
-
-window.onload = function() {
-    axios
-      .get(`https://www.dnd5eapi.co/api/monsters`)
-      .then((response) => {
-        allMonsters = response.data.results;
-      })
-      .catch((error) => {
-        console.error("Error fetching monsters");
-      });
-  };
 
   monsterInput.addEventListener("input", () => {
     const query = monsterInput.value.toLowerCase();
     updateAutocompleteList(query);
 });
 
-function updateAutocompleteList(query : string) {
-  autocompleteList.innerHTML = '';
-
+function updateAutocompleteList(query: string): void {
+  autocompleteList.innerHTML = "";
   if (!query) return;
 
-  const filteredMonsters = allMonsters.filter(monster =>
-    monster.name.toLowerCase().startsWith(query)
+  const filteredMonsters = allMonsters.filter((monster) =>
+      monster.name.toLowerCase().startsWith(query)
   );
 
-  filteredMonsters.forEach(monster => {
-    const item = document.createElement("div");
-    item.classList.add("autocomplete-item");
-    item.textContent = monster.name;
+  filteredMonsters.forEach((monster) => addAutocompleteItem(monster));
+}
 
-    item.addEventListener("click", () => {
+function addAutocompleteItem(monster: Monster): void {
+  const item = document.createElement("div");
+  item.classList.add("autocomplete-item");
+  item.textContent = monster.name;
+
+  item.addEventListener("click", () => {
       monsterInput.value = monster.name;
-      autocompleteList.innerHTML = ''; 
-    });
-
-    autocompleteList.appendChild(item);
+      autocompleteList.innerHTML = "";
   });
+
+  autocompleteList.appendChild(item);
 }
 
 searchButton.addEventListener("click", () => {
@@ -59,64 +78,68 @@ searchButton.addEventListener("click", () => {
   }
 });
 
-function searchMonster(monsterName) {
+async function searchMonster(monsterName: string): Promise<void> {
   monsterResult.innerHTML = "Searching...";
-
-  axios
-    .get(`https://www.dnd5eapi.co/api/monsters`)
-    .then((response) => {
-      const monsters = response.data.results;
-      const matchedMonster = monsters.find(
-        (monster) => monster.name.toLowerCase() === monsterName
-      );
-
-      if (matchedMonster) {
-        axios
-          .get(`https://www.dnd5eapi.co${matchedMonster.url}`)
-          .then((monsterResponse) => {
-            const monsterData = monsterResponse.data;
-            let speedHTML = `<strong>Speed: </strong> `;
-            if (monsterData.speed.walk) {
-              speedHTML += `Walking: ${monsterData.speed.walk} `;
-            }
-            if (monsterData.speed.swim) {
-              speedHTML += `| Swimming: ${monsterData.speed.swim} `;
-            }
-            if (monsterData.speed.fly) {
-              speedHTML += `| Flying: ${monsterData.speed.fly} `;
-            }
-            if (monsterData.speed.burrow) {
-              speedHTML += `| Burrowing: ${monsterData.speed.burrow} `;
-            }
-            if (monsterData.speed.climb) {
-              speedHTML += `| Climbing: ${monsterData.speed.climb} `;
-            }
-            const imageUrl = `https://www.dnd5eapi.co${monsterData.image}`;
-            const imageHTML = monsterData.image 
-            ? `<img class="monster-image" src="${imageUrl}" alt="an image depicting the Dungeons and Dragons monster: ${monsterData.name}" />` 
-            : '';
-            monsterResult.innerHTML = `
-              <h2>${monsterData.name}</h2>
-              <div>
-              <p><strong>Size:</strong> ${monsterData.size}</p>
-              <p><strong>Type:</strong> ${monsterData.type + ", " + monsterData.alignment}</p>
-              <p><strong>Armour Class:</strong> ${monsterData.armor_class[0].value + " " + monsterData.armor_class[0].type}</p>
-              <p><strong>Hit Points:</strong> ${monsterData.hit_points}</p>
-              <p><strong>Hit Dice:</strong> ${monsterData.hit_points_roll}</p>
-              <p>${speedHTML.trim()}</p>
-              <!-- You can display more monster details here -->
-              </div>
-              <div class="monster-image-container">${imageHTML}</div>
-            `;
-          })
-          .catch((error) => {
-            monsterResult.innerHTML = "Error fetching monster details.";
-          });
-      } else {
-        monsterResult.innerHTML = "Monster not found.";
+  try {
+      const matchedMonster = await findMonster(monsterName);
+      if (!matchedMonster) {
+          monsterResult.innerHTML = "Monster not found.";
+          return;
       }
-    })
-    .catch((error) => {
-      monsterResult.innerHTML = "Error fetching monsters.";
-    });
+      const monsterData = await fetchMonsterDetails(matchedMonster.url);
+      displayMonsterDetails(monsterData);
+  } catch (error) {
+      monsterResult.innerHTML = "Error fetching monster details.";
+      console.error("Error fetching monster details", error);
+  }
+}
+
+async function findMonster(monsterName: string): Promise<Monster | undefined> {
+  try {
+      const response = await axios.get<{ results: Monster[] }>(
+          "https://www.dnd5eapi.co/api/monsters"
+      );
+      return response.data.results.find(
+          (monster) => monster.name.toLowerCase() === monsterName
+      );
+  } catch (error) {
+      console.error("Error fetching monsters", error);
+      return undefined;
+  }
+}
+
+async function fetchMonsterDetails(url: string): Promise<MonsterDetails> {
+  const response = await axios.get<MonsterDetails>(`https://www.dnd5eapi.co${url}`);
+  return response.data;
+}
+
+function displayMonsterDetails(monsterData: MonsterDetails): void {
+  let speedHTML = generateSpeedHTML(monsterData.speed);
+  const imageUrl = `https://www.dnd5eapi.co${monsterData.image}`;
+  const imageHTML = monsterData.image
+      ? `<img class="monster-image" src="${imageUrl}" alt="an image depicting the Dungeons and Dragons monster: ${monsterData.name}" />`
+      : "";
+
+  monsterResult.innerHTML = `
+  <h2>${monsterData.name}</h2>
+  <div>
+    <p><strong>Size:</strong> ${monsterData.size}</p>
+    <p><strong>Type:</strong> ${monsterData.type}, ${monsterData.alignment}</p>
+    <p><strong>Armour Class:</strong> ${monsterData.armor_class[0]?.value ?? "N/A"} ${monsterData.armor_class[0]?.type ?? ""}</p>
+    <p><strong>Hit Points:</strong> ${monsterData.hit_points}</p>
+    <p><strong>Hit Dice:</strong> ${monsterData.hit_points_roll}</p>
+    <p>${speedHTML.trim()}</p>
+  </div>
+  <div class="monster-image-container">${imageHTML}</div>
+`;
+}
+
+function generateSpeedHTML(speed: MonsterDetails["speed"]): string {
+  let speedHTML = `<strong>Speed: </strong>`;
+  if (speed.walk) speedHTML += `Walking: ${speed.walk} `;
+  if (speed.swim) speedHTML += `| Swimming: ${speed.swim} `;
+  if (speed.fly) speedHTML += `| Flying: ${speed.fly} `;
+  if (speed.burrow) speedHTML += `| Burrowing: ${speed.burrow} `;
+  if (speed.climb) speedHTML += `| Climbing: ${speed.climb} `;
+  return speedHTML;
 }
